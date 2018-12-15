@@ -31,7 +31,7 @@ It offers a variety of features:
 * Docs: <https://rocketmq.apache.org/docs/quick-start/>
 * Issues: <https://github.com/apache/rocketmq/issues>
 * Ask: <https://stackoverflow.com/questions/tagged/rocketmq>
-* Slack: <https://rocketmq-community.slack.com/>
+* Slack: <https://rocketmq-invite-automation.herokuapp.com/>
  
 
 ----------
@@ -42,7 +42,7 @@ It offers a variety of features:
 ----------
 
 ## Contributing
-We always welcome new contributions, whether for trivial cleanups, big new features or other material rewards, more details see [here](http://rocketmq.apache.org/docs/how-to-contribute/) 
+We always welcome new contributions, whether for trivial cleanups, big new features or other material rewards, more details see [here](http://rocketmq.apache.org/docs/how-to-contribute/).
  
 ----------
 ## License
