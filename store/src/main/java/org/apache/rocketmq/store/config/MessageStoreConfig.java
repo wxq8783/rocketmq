@@ -31,7 +31,7 @@ public class MessageStoreConfig {
         + File.separator + "commitlog";
 
     // CommitLog file size,default is 1G
-    private int mapedFileSizeCommitLog = 1024 * 1024 * 1024;
+    private int mapedFileSizeCommitLog = 1 * 1024 * 1024;
     // ConsumeQueue file size,default is 30W
     private int mapedFileSizeConsumeQueue = 300000 * ConsumeQueue.CQ_STORE_UNIT_SIZE;
     // enable consume queue ext
@@ -47,8 +47,7 @@ public class MessageStoreConfig {
     @ImportantField
     private int flushIntervalCommitLog = 500;
 
-    // Only used if TransientStorePool enabled
-    // flush data to FileChannel
+    // Only used if TransientStorePool enabled flush data to FileChannel  CommitRea!TimeService 线程间隔时间 单位:毫秒
     @ImportantField
     private int commitIntervalCommitLog = 200;
 
@@ -88,7 +87,7 @@ public class MessageStoreConfig {
     private boolean checkCRCOnRecover = true;
     // How many pages are to be flushed when flush CommitLog
     private int flushCommitLogLeastPages = 4;
-    // How many pages are to be committed when commit data to file
+    // How many pages are to be committed when commit data to file  一次提交任务至少包含页数
     private int commitCommitLogLeastPages = 4;
     // Flush page size when the disk in warming state
     private int flushLeastPagesWhenWarmMapedFile = 1024 / 4 * 16;

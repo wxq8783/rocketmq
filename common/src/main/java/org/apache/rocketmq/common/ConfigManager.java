@@ -23,18 +23,21 @@ import org.apache.rocketmq.logging.InternalLoggerFactory;
 
 public abstract class ConfigManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.COMMON_LOGGER_NAME);
-
+    // 将对象转换成json串
     public abstract String encode();
-
+    //将文件里内容(json格式)的转换成对象
     public boolean load() {
         String fileName = null;
         try {
+            // 获取文件地址
             fileName = this.configFilePath();
+            //读取文件的内容
             String jsonString = MixAll.file2String(fileName);
 
             if (null == jsonString || jsonString.length() == 0) {
                 return this.loadBak();
             } else {
+                //转换指定的对象
                 this.decode(jsonString);
                 log.info("load " + fileName + " OK");
                 return true;
@@ -44,9 +47,9 @@ public abstract class ConfigManager {
             return this.loadBak();
         }
     }
-
+    //配置文件的地址
     public abstract String configFilePath();
-
+    //读取.bak的文件
     private boolean loadBak() {
         String fileName = null;
         try {
@@ -67,6 +70,7 @@ public abstract class ConfigManager {
 
     public abstract void decode(final String jsonString);
 
+    // 将对象里的数据转换成json并持久化到configFilePath()文件中
     public synchronized void persist() {
         String jsonString = this.encode(true);
         if (jsonString != null) {

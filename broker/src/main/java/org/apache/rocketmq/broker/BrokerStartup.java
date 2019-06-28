@@ -183,7 +183,7 @@ public class BrokerStartup {
             JoranConfigurator configurator = new JoranConfigurator();
             configurator.setContext(lc);
             lc.reset();
-            configurator.doConfigure(brokerConfig.getRocketmqHome() + "/conf/logback_broker.xml");
+            configurator.doConfigure("D:/framework/rocketmq/distribution/conf/logback_broker.xml");
 
             if (commandLine.hasOption('p')) {
                 InternalLogger console = InternalLoggerFactory.getLogger(LoggerName.BROKER_CONSOLE_NAME);

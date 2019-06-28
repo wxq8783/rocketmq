@@ -61,13 +61,13 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
     public SendMessageProcessor(final BrokerController brokerController) {
         super(brokerController);
     }
-
+    //TODO 消息发送 broker接收消息的入口
     @Override
     public RemotingCommand processRequest(ChannelHandlerContext ctx,
                                           RemotingCommand request) throws RemotingCommandException {
         SendMessageContext mqtraceContext;
         switch (request.getCode()) {
-            case RequestCode.CONSUMER_SEND_MSG_BACK:
+            case RequestCode.CONSUMER_SEND_MSG_BACK://消息确认(ACK)操作
                 return this.consumerSendMsgBack(ctx, request);
             default:
                 SendMessageRequestHeader requestHeader = parseRequestHeader(request);
@@ -115,7 +115,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
             this.executeConsumeMessageHookAfter(context);
         }
-
+        //获取消费者的订阅配置信息
         SubscriptionGroupConfig subscriptionGroupConfig =
             this.brokerController.getSubscriptionGroupManager().findSubscriptionGroupConfig(requestHeader.getGroup());
         if (null == subscriptionGroupConfig) {
@@ -136,15 +136,16 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             response.setRemark(null);
             return response;
         }
-
+        //创建重试主题 重试主题名称：%RETRY%+消费者名称
         String newTopic = MixAll.getRetryTopic(requestHeader.getGroup());
+        //从重试队列中随机选择一个队列
         int queueIdInt = Math.abs(this.random.nextInt() % 99999999) % subscriptionGroupConfig.getRetryQueueNums();
 
         int topicSysFlag = 0;
         if (requestHeader.isUnitMode()) {
             topicSysFlag = TopicSysFlag.buildSysFlag(false, true);
         }
-
+        //构建主题配置信息
         TopicConfig topicConfig = this.brokerController.getTopicConfigManager().createTopicInSendMessageBackMethod(
             newTopic,
             subscriptionGroupConfig.getRetryQueueNums(),
@@ -160,7 +161,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             response.setRemark(String.format("the topic[%s] sending message is forbidden", newTopic));
             return response;
         }
-
+        //根据物理偏移量从commitlog文件中获取消息，同时将消息的主题存入属性中
         MessageExt msgExt = this.brokerController.getMessageStore().lookMessageByOffset(requestHeader.getOffset());
         if (null == msgExt) {
             response.setCode(ResponseCode.SYSTEM_ERROR);
@@ -183,6 +184,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
         if (msgExt.getReconsumeTimes() >= maxReconsumeTimes
             || delayLevel < 0) {
+            //创建死信队列topic  变更主题为DLQ("%DLQ%")
             newTopic = MixAll.getDLQTopic(requestHeader.getGroup());
             queueIdInt = Math.abs(this.random.nextInt() % 99999999) % DLQ_NUMS_PER_GROUP;
 
@@ -217,10 +219,11 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         msgInner.setBornHost(msgExt.getBornHost());
         msgInner.setStoreHost(this.getStoreHost());
         msgInner.setReconsumeTimes(msgExt.getReconsumeTimes() + 1);
-
+        //根据原先的消息创建一个新的消息对象，重试消息会拥有自己的唯一消息ID 并存入commitlog文件中，并不会去更新原先消息，
+        // 而是会将原先的主题、消息ID存入消息的属性中 主题名称为重试主题 其他属性与原先消息保持一致
         String originMsgId = MessageAccessor.getOriginMessageId(msgExt);
         MessageAccessor.setOriginMessageId(msgInner, UtilAll.isBlank(originMsgId) ? msgExt.getMsgId() : originMsgId);
-
+        //TODO 消息存储
         PutMessageResult putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);
         if (putMessageResult != null) {
             switch (putMessageResult.getPutMessageStatus()) {
@@ -250,7 +253,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         response.setRemark("putMessageResult is null");
         return response;
     }
-
+    //TODO 进入死信队列
     private boolean handleRetryAndDLQ(SendMessageRequestHeader requestHeader, RemotingCommand response,
                                       RemotingCommand request,
                                       MessageExt msg, TopicConfig topicConfig) {
@@ -295,6 +298,15 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         return true;
     }
 
+    /**
+     * broker端接收消息并处理
+     * @param ctx
+     * @param request
+     * @param sendMessageContext
+     * @param requestHeader
+     * @return
+     * @throws RemotingCommandException
+     */
     private RemotingCommand sendMessage(final ChannelHandlerContext ctx,
                                         final RemotingCommand request,
                                         final SendMessageContext sendMessageContext,
@@ -302,7 +314,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
         final RemotingCommand response = RemotingCommand.createResponseCommand(SendMessageResponseHeader.class);
         final SendMessageResponseHeader responseHeader = (SendMessageResponseHeader)response.readCustomHeader();
-
+        //表示RPC的seqNumber
         response.setOpaque(request.getOpaque());
 
         response.addExtField(MessageConst.PROPERTY_MSG_REGION, this.brokerController.getBrokerConfig().getRegionId());
@@ -327,15 +339,15 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
         int queueIdInt = requestHeader.getQueueId();
         TopicConfig topicConfig = this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
-
+        //如果没有指定的queueId,系统生成
         if (queueIdInt < 0) {
             queueIdInt = Math.abs(this.random.nextInt() % 99999999) % topicConfig.getWriteQueueNums();
         }
-
+        //构建broke内部使用的message
         MessageExtBrokerInner msgInner = new MessageExtBrokerInner();
         msgInner.setTopic(requestHeader.getTopic());
         msgInner.setQueueId(queueIdInt);
-
+        //如果是消费重试的topic 重试消费次数达到上限后，进入死信队列
         if (!handleRetryAndDLQ(requestHeader, response, request, msgInner, topicConfig)) {
             return response;
         }
@@ -343,13 +355,19 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         msgInner.setBody(body);
         msgInner.setFlag(requestHeader.getFlag());
         MessageAccessor.setProperties(msgInner, MessageDecoder.string2messageProperties(requestHeader.getProperties()));
+
         msgInner.setPropertiesString(requestHeader.getProperties());
+
         msgInner.setBornTimestamp(requestHeader.getBornTimestamp());
+
         msgInner.setBornHost(ctx.channel().remoteAddress());
+
         msgInner.setStoreHost(this.getStoreHost());
+
         msgInner.setReconsumeTimes(requestHeader.getReconsumeTimes() == null ? 0 : requestHeader.getReconsumeTimes());
         PutMessageResult putMessageResult = null;
         Map<String, String> oriProps = MessageDecoder.string2messageProperties(requestHeader.getProperties());
+        //判断是否是事物消息 如果是，检查当前broker是否支持接收事物消息
         String traFlag = oriProps.get(MessageConst.PROPERTY_TRANSACTION_PREPARED);
         if (traFlag != null && Boolean.parseBoolean(traFlag)) {
             if (this.brokerController.getBrokerConfig().isRejectTransactionMessage()) {
@@ -359,8 +377,10 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
                         + "] sending transaction message is forbidden");
                 return response;
             }
+            //如果是事物消息
             putMessageResult = this.brokerController.getTransactionalMessageService().prepareMessage(msgInner);
         } else {
+            //普通的消息
             putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);
         }
 

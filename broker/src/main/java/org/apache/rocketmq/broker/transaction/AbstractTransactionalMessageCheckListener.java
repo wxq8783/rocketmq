@@ -51,7 +51,7 @@ public abstract class AbstractTransactionalMessageCheckListener {
     public AbstractTransactionalMessageCheckListener(BrokerController brokerController) {
         this.brokerController = brokerController;
     }
-
+    //TODO 发起回查
     public void sendCheckMessage(MessageExt msgExt) throws Exception {
         CheckTransactionStateRequestHeader checkTransactionStateRequestHeader = new CheckTransactionStateRequestHeader();
         checkTransactionStateRequestHeader.setCommitLogOffset(msgExt.getCommitLogOffset());

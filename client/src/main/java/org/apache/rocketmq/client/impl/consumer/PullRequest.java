@@ -19,8 +19,11 @@ package org.apache.rocketmq.client.impl.consumer;
 import org.apache.rocketmq.common.message.MessageQueue;
 
 public class PullRequest {
+    //消费者组
     private String consumerGroup;
+    //待拉取消费队列
     private MessageQueue messageQueue;
+    //消息处理队列 从Broker拉取到的消息先存入到processQueue，然后在提交到消费者线程池消费
     private ProcessQueue processQueue;
     private long nextOffset;
     private boolean lockedFirst = false;

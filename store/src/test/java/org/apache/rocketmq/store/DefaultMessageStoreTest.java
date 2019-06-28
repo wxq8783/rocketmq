@@ -106,10 +106,10 @@ public class DefaultMessageStoreTest {
 
     private MessageStore buildMessageStore() throws Exception {
         MessageStoreConfig messageStoreConfig = new MessageStoreConfig();
-        messageStoreConfig.setMapedFileSizeCommitLog(1024 * 1024 * 10);
-        messageStoreConfig.setMapedFileSizeConsumeQueue(1024 * 1024 * 10);
-        messageStoreConfig.setMaxHashSlotNum(10000);
-        messageStoreConfig.setMaxIndexNum(100 * 100);
+        messageStoreConfig.setMapedFileSizeCommitLog(1024  * 10);
+        messageStoreConfig.setMapedFileSizeConsumeQueue(256);
+        messageStoreConfig.setMaxHashSlotNum(10);
+        messageStoreConfig.setMaxIndexNum(200);
         messageStoreConfig.setFlushDiskType(FlushDiskType.SYNC_FLUSH);
         messageStoreConfig.setFlushIntervalConsumeQueue(1);
         return new DefaultMessageStore(messageStoreConfig, new BrokerStatsManager("simpleTest"), new MyMessageArrivingListener(), new BrokerConfig());

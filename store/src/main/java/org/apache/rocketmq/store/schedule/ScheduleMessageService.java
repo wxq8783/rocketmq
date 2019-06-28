@@ -46,7 +46,7 @@ import org.apache.rocketmq.store.config.StorePathConfigHelper;
 
 public class ScheduleMessageService extends ConfigManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
-
+    //定时消息统一主题
     public static final String SCHEDULE_TOPIC = "SCHEDULE_TOPIC_XXXX";
     private static final long FIRST_DELAY_TIME = 1000L;
     private static final long DELAY_FOR_A_WHILE = 100L;
@@ -56,8 +56,8 @@ public class ScheduleMessageService extends ConfigManager {
         new ConcurrentHashMap<Integer, Long>(32);
 
     private final ConcurrentMap<Integer /* level */, Long/* offset */> offsetTable =
-        new ConcurrentHashMap<Integer, Long>(32);
-    private final DefaultMessageStore defaultMessageStore;
+        new ConcurrentHashMap<Integer, Long>(32);//延迟级别消息消费进度
+    private final DefaultMessageStore defaultMessageStore;//默认消息存储器
     private final AtomicBoolean started = new AtomicBoolean(false);
     private Timer timer;
     private MessageStore writeMessageStore;
@@ -110,9 +110,13 @@ public class ScheduleMessageService extends ConfigManager {
         return storeTimestamp + 1000;
     }
 
+    /**
+     * 根据延迟级别创建对应的定时任务，启动定时任务持久化延迟消息队列进度存储
+     */
     public void start() {
         if (started.compareAndSet(false, true)) {
             this.timer = new Timer("ScheduleMessageTimerThread", true);
+            //遍历延迟级别
             for (Map.Entry<Integer, Long> entry : this.delayLevelTable.entrySet()) {
                 Integer level = entry.getKey();
                 Long timeDelay = entry.getValue();
@@ -122,10 +126,11 @@ public class ScheduleMessageService extends ConfigManager {
                 }
 
                 if (timeDelay != null) {
+                    //创建定时任务，每一个当时任务第一次启动时默认延迟1s先执行一次定时任务，第二次调度开始才使用相应的延迟时间
                     this.timer.schedule(new DeliverDelayedMessageTimerTask(level, offset), FIRST_DELAY_TIME);
                 }
             }
-
+            //创建定时任务，每隔10s持久化一次延迟队列的消息消费进度(延迟消息调度)
             this.timer.scheduleAtFixedRate(new TimerTask() {
 
                 @Override
@@ -160,6 +165,11 @@ public class ScheduleMessageService extends ConfigManager {
         return this.encode(false);
     }
 
+    /**
+     * 该方法主要完成延迟消息消费队列消息进度的加载与delayLevelTable数据的构造
+     * 延迟队列消息消费进度默认存储路径为{ROCKET一HOME} /store/config/delayOffset.json
+     * @return
+     */
     public boolean load() {
         boolean result = super.load();
         result = result && this.parseDelayLevel();
@@ -189,6 +199,10 @@ public class ScheduleMessageService extends ConfigManager {
         return delayOffsetSerializeWrapper.toJson(prettyFormat);
     }
 
+    /**
+     * 解析MessageStoreConfig#messageDelayLevel定义的延迟级别转换为Map
+     * @return
+     */
     public boolean parseDelayLevel() {
         HashMap<String, Long> timeUnitTable = new HashMap<String, Long>();
         timeUnitTable.put("s", 1000L);
@@ -221,6 +235,9 @@ public class ScheduleMessageService extends ConfigManager {
         return true;
     }
 
+    /**
+     * 定时调度任务实现类
+     */
     class DeliverDelayedMessageTimerTask extends TimerTask {
         private final int delayLevel;
         private final long offset;
@@ -260,6 +277,7 @@ public class ScheduleMessageService extends ConfigManager {
         }
 
         public void executeOnTimeup() {
+            //获取 消息消费队列
             ConsumeQueue cq =
                 ScheduleMessageService.this.defaultMessageStore.findConsumeQueue(SCHEDULE_TOPIC,
                     delayLevel2QueueId(delayLevel));
@@ -267,12 +285,14 @@ public class ScheduleMessageService extends ConfigManager {
             long failScheduleOffset = offset;
 
             if (cq != null) {
+                //根据offset从消费队列中获取当前队列中所有有效的消息
                 SelectMappedBufferResult bufferCQ = cq.getIndexBuffer(this.offset);
                 if (bufferCQ != null) {
                     try {
                         long nextOffset = offset;
                         int i = 0;
                         ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
+                        //遍历ConsumeQueue ,解析出消息的物理偏移量、消息长度、消息tag hashcode ,为从commitlog加载具体的消息做准备
                         for (; i < bufferCQ.getSize(); i += ConsumeQueue.CQ_STORE_UNIT_SIZE) {
                             long offsetPy = bufferCQ.getByteBuffer().getLong();
                             int sizePy = bufferCQ.getByteBuffer().getInt();
@@ -298,16 +318,17 @@ public class ScheduleMessageService extends ConfigManager {
                             long countdown = deliverTimestamp - now;
 
                             if (countdown <= 0) {
+                                //根据消息物理偏移量和消息大小从commitlog文件中查找消息
                                 MessageExt msgExt =
                                     ScheduleMessageService.this.defaultMessageStore.lookMessageByOffset(
                                         offsetPy, sizePy);
 
                                 if (msgExt != null) {
                                     try {
+                                        //重新构建新的消息对象，清楚消息的延迟解并属性 并恢复消息原先的消息主题和消息消费队列
                                         MessageExtBrokerInner msgInner = this.messageTimeup(msgExt);
-                                        PutMessageResult putMessageResult =
-                                            ScheduleMessageService.this.writeMessageStore
-                                                .putMessage(msgInner);
+                                        //将消息再次存入到commitlog  并转发到主题对应的消息队列上  供消费者再次消费
+                                        PutMessageResult putMessageResult = ScheduleMessageService.this.writeMessageStore.putMessage(msgInner);
 
                                         if (putMessageResult != null
                                             && putMessageResult.getPutMessageStatus() == PutMessageStatus.PUT_OK) {
@@ -317,11 +338,8 @@ public class ScheduleMessageService extends ConfigManager {
                                             log.error(
                                                 "ScheduleMessageService, a message time up, but reput it failed, topic: {} msgId {}",
                                                 msgExt.getTopic(), msgExt.getMsgId());
-                                            ScheduleMessageService.this.timer.schedule(
-                                                new DeliverDelayedMessageTimerTask(this.delayLevel,
-                                                    nextOffset), DELAY_FOR_A_PERIOD);
-                                            ScheduleMessageService.this.updateOffset(this.delayLevel,
-                                                nextOffset);
+                                            ScheduleMessageService.this.timer.schedule( new DeliverDelayedMessageTimerTask(this.delayLevel, nextOffset), DELAY_FOR_A_PERIOD);
+                                            ScheduleMessageService.this.updateOffset(this.delayLevel, nextOffset);
                                             return;
                                         }
                                     } catch (Exception e) {
@@ -347,8 +365,7 @@ public class ScheduleMessageService extends ConfigManager {
                         } // end of for
 
                         nextOffset = offset + (i / ConsumeQueue.CQ_STORE_UNIT_SIZE);
-                        ScheduleMessageService.this.timer.schedule(new DeliverDelayedMessageTimerTask(
-                            this.delayLevel, nextOffset), DELAY_FOR_A_WHILE);
+                        ScheduleMessageService.this.timer.schedule(new DeliverDelayedMessageTimerTask(this.delayLevel, nextOffset), DELAY_FOR_A_WHILE);
                         ScheduleMessageService.this.updateOffset(this.delayLevel, nextOffset);
                         return;
                     } finally {
@@ -357,7 +374,7 @@ public class ScheduleMessageService extends ConfigManager {
                     }
                 } // end of if (bufferCQ != null)
                 else {
-
+                    //更新一下延迟队列定时拉取进度并创建定时任务待下一次继续尝试
                     long cqMinOffset = cq.getMinOffsetInQueue();
                     if (offset < cqMinOffset) {
                         failScheduleOffset = cqMinOffset;

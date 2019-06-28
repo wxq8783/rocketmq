@@ -66,6 +66,9 @@ import org.apache.rocketmq.store.PutMessageResult;
 import org.apache.rocketmq.store.config.BrokerRole;
 import org.apache.rocketmq.store.stats.BrokerStatsManager;
 
+/**
+ * 消息服务端组装消息
+ */
 public class PullMessageProcessor implements NettyRequestProcessor {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private final BrokerController brokerController;
@@ -223,7 +226,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             response.setRemark("The broker does not support consumer to filter message by " + subscriptionData.getExpressionType());
             return response;
         }
-
+        //根据订阅信息，构建消息过滤器  也就是如果是 tag 模式，执行isMatchedByCommitLog 方法将直接返回 true 。
         MessageFilter messageFilter;
         if (this.brokerController.getBrokerConfig().isFilterSupportRetry()) {
             messageFilter = new ExpressionForRetryMessageFilter(subscriptionData, consumerFilterData,
@@ -232,7 +235,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             messageFilter = new ExpressionMessageFilter(subscriptionData, consumerFilterData,
                 this.brokerController.getConsumerFilterManager());
         }
-
+        //真正获取消息的内容  查找消息
         final GetMessageResult getMessageResult =
             this.brokerController.getMessageStore().getMessage(requestHeader.getConsumerGroup(), requestHeader.getTopic(),
                 requestHeader.getQueueId(), requestHeader.getQueueOffset(), requestHeader.getMaxMsgNums(), messageFilter);
@@ -241,7 +244,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             responseHeader.setNextBeginOffset(getMessageResult.getNextBeginOffset());
             responseHeader.setMinOffset(getMessageResult.getMinOffset());
             responseHeader.setMaxOffset(getMessageResult.getMaxOffset());
-
+            //根据主从同步延迟，如果从节点数据包含下一次拉取的偏移量，设置下一次拉取任务的brokerId
             if (getMessageResult.isSuggestPullingFromSlave()) {
                 responseHeader.setSuggestWhichBrokerId(subscriptionGroupConfig.getWhichBrokerWhenConsumeSlowly());
             } else {
@@ -275,15 +278,15 @@ public class PullMessageProcessor implements NettyRequestProcessor {
 
             switch (getMessageResult.getStatus()) {
                 case FOUND:
-                    response.setCode(ResponseCode.SUCCESS);
+                    response.setCode(ResponseCode.SUCCESS); //成功
                     break;
-                case MESSAGE_WAS_REMOVING:
-                    response.setCode(ResponseCode.PULL_RETRY_IMMEDIATELY);
+                case MESSAGE_WAS_REMOVING://消息存放在下一个commitlog文件中
+                    response.setCode(ResponseCode.PULL_RETRY_IMMEDIATELY); //立即重试
                     break;
-                case NO_MATCHED_LOGIC_QUEUE:
-                case NO_MESSAGE_IN_QUEUE:
+                case NO_MATCHED_LOGIC_QUEUE: //为找到队列
+                case NO_MESSAGE_IN_QUEUE://队列中未包含消息
                     if (0 != requestHeader.getQueueOffset()) {
-                        response.setCode(ResponseCode.PULL_OFFSET_MOVED);
+                        response.setCode(ResponseCode.PULL_OFFSET_MOVED);//偏移量移动
 
                         // XXX: warn and notify me
                         log.info("the broker store no queue data, fix the request offset {} to {}, Topic: {} QueueId: {} Consumer Group: {}",
@@ -294,26 +297,26 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                             requestHeader.getConsumerGroup()
                         );
                     } else {
-                        response.setCode(ResponseCode.PULL_NOT_FOUND);
+                        response.setCode(ResponseCode.PULL_NOT_FOUND);//未找到消息
                     }
                     break;
-                case NO_MATCHED_MESSAGE:
-                    response.setCode(ResponseCode.PULL_RETRY_IMMEDIATELY);
+                case NO_MATCHED_MESSAGE://为找到消息
+                    response.setCode(ResponseCode.PULL_RETRY_IMMEDIATELY);//立即重试
                     break;
-                case OFFSET_FOUND_NULL:
-                    response.setCode(ResponseCode.PULL_NOT_FOUND);
+                case OFFSET_FOUND_NULL://消息物理偏移量为空
+                    response.setCode(ResponseCode.PULL_NOT_FOUND);//未找到消息
                     break;
-                case OFFSET_OVERFLOW_BADLY:
-                    response.setCode(ResponseCode.PULL_OFFSET_MOVED);
+                case OFFSET_OVERFLOW_BADLY://offset越界
+                    response.setCode(ResponseCode.PULL_OFFSET_MOVED);//偏移量移动
                     // XXX: warn and notify me
                     log.info("the request offset: {} over flow badly, broker max offset: {}, consumer: {}",
                         requestHeader.getQueueOffset(), getMessageResult.getMaxOffset(), channel.remoteAddress());
                     break;
-                case OFFSET_OVERFLOW_ONE:
-                    response.setCode(ResponseCode.PULL_NOT_FOUND);
+                case OFFSET_OVERFLOW_ONE://offset越界一个
+                    response.setCode(ResponseCode.PULL_NOT_FOUND);//未找到消息
                     break;
-                case OFFSET_TOO_SMALL:
-                    response.setCode(ResponseCode.PULL_OFFSET_MOVED);
+                case OFFSET_TOO_SMALL://offset未在消息队列中
+                    response.setCode(ResponseCode.PULL_OFFSET_MOVED);//偏移量移动
                     log.info("the request offset too small. group={}, topic={}, requestOffset={}, brokerMinOffset={}, clientIp={}",
                         requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueOffset(),
                         getMessageResult.getMinOffset(), channel.remoteAddress());
@@ -404,8 +407,8 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                     }
                     break;
                 case ResponseCode.PULL_NOT_FOUND:
-
-                    if (brokerAllowSuspend && hasSuspendFlag) {
+                    //没有消息 长轮询实现机制
+                    if (brokerAllowSuspend && hasSuspendFlag) {//brokerAllowSuspend  是否支持挂起，默认true
                         long pollingTimeMills = suspendTimeoutMillisLong;
                         if (!this.brokerController.getBrokerConfig().isLongPollingEnable()) {
                             pollingTimeMills = this.brokerController.getBrokerConfig().getShortPollingTimeMills();
@@ -416,6 +419,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                         int queueId = requestHeader.getQueueId();
                         PullRequest pullRequest = new PullRequest(request, channel, pollingTimeMills,
                             this.brokerController.getMessageStore().now(), offset, subscriptionData, messageFilter);
+                        //挂起当前请求 返回null
                         this.brokerController.getPullRequestHoldService().suspendPullRequest(topic, queueId, pullRequest);
                         response = null;
                         break;
@@ -457,12 +461,13 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             response.setCode(ResponseCode.SYSTEM_ERROR);
             response.setRemark("store getMessage return null");
         }
-
+        //如果commotlog标记可以并且当前节点为主节点，则更新消息消费进度
         boolean storeOffsetEnable = brokerAllowSuspend;
         storeOffsetEnable = storeOffsetEnable && hasCommitOffsetFlag;
         storeOffsetEnable = storeOffsetEnable
             && this.brokerController.getMessageStoreConfig().getBrokerRole() != BrokerRole.SLAVE;
         if (storeOffsetEnable) {
+            //更新消费进度
             this.brokerController.getConsumerOffsetManager().commitOffset(RemotingHelper.parseChannelRemoteAddr(channel),
                 requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueId(), requestHeader.getCommitOffset());
         }
@@ -536,6 +541,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             @Override
             public void run() {
                 try {
+                    //brokerAllowSuspend 设置为false  表示不支持拉取线程挂起
                     final RemotingCommand response = PullMessageProcessor.this.processRequest(channel, request, false);
 
                     if (response != null) {

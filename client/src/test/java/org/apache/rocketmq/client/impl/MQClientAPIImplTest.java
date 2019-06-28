@@ -174,6 +174,7 @@ public class MQClientAPIImplTest {
             new SendCallback() {
                 @Override
                 public void onSuccess(SendResult sendResult) {
+                    System.out.println(sendResult.getMessageQueue().getQueueId());
                     assertThat(sendResult.getSendStatus()).isEqualTo(SendStatus.SEND_OK);
                     assertThat(sendResult.getOffsetMsgId()).isEqualTo("123");
                     assertThat(sendResult.getQueueOffset()).isEqualTo(123L);

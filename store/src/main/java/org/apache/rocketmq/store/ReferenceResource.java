@@ -53,7 +53,12 @@ public abstract class ReferenceResource {
         }
     }
 
+    /**
+     * 释放资源
+     * 前提是引用小于等于0
+     */
     public void release() {
+        //将引用次数减1
         long value = this.refCount.decrementAndGet();
         if (value > 0)
             return;

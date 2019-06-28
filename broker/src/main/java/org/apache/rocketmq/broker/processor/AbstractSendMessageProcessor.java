@@ -164,6 +164,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
 
     protected RemotingCommand msgCheck(final ChannelHandlerContext ctx,
         final SendMessageRequestHeader requestHeader, final RemotingCommand response) {
+        //Topic的权限，可以禁止读和写 在运维rocketMQServer时非常有用，比如顺序消息的扩容和缩容
         if (!PermName.isWriteable(this.brokerController.getBrokerConfig().getBrokerPermission())
             && this.brokerController.getTopicConfigManager().isOrderTopic(requestHeader.getTopic())) {
             response.setCode(ResponseCode.NO_PERMISSION);
@@ -171,6 +172,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
                 + "] sending message is forbidden");
             return response;
         }
+        //不能和系统默认的topic冲突
         if (!this.brokerController.getTopicConfigManager().isTopicCanSendMessage(requestHeader.getTopic())) {
             String errorMsg = "the topic[" + requestHeader.getTopic() + "] is conflict with system reserved words.";
             log.warn(errorMsg);
@@ -178,7 +180,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
             response.setRemark(errorMsg);
             return response;
         }
-
+        //查看topic的配置
         TopicConfig topicConfig =
             this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
         if (null == topicConfig) {
@@ -190,7 +192,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
                     topicSysFlag = TopicSysFlag.buildSysFlag(true, false);
                 }
             }
-
+            //创建topicConfig
             log.warn("the topic {} not exist, producer: {}", requestHeader.getTopic(), ctx.channel().remoteAddress());
             topicConfig = this.brokerController.getTopicConfigManager().createTopicInSendMessageMethod(
                 requestHeader.getTopic(),

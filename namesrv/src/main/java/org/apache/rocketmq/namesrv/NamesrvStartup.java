@@ -116,7 +116,7 @@ public class NamesrvStartup {
         JoranConfigurator configurator = new JoranConfigurator();
         configurator.setContext(lc);
         lc.reset();
-        configurator.doConfigure(namesrvConfig.getRocketmqHome() + "/conf/logback_namesrv.xml");
+        configurator.doConfigure("D:/framework/rocketmq/distribution/conf/logback_namesrv.xml");
 
         log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
 
@@ -142,7 +142,7 @@ public class NamesrvStartup {
             controller.shutdown();
             System.exit(-3);
         }
-
+        //注册JVM钩子函数代码 代码中使用了线程池，一种优雅停机方式的方式就是注册一个JVM钩子 在JVM进程关闭之前，先将线程池关闭，及时释放资源
         Runtime.getRuntime().addShutdownHook(new ShutdownHookThread(log, new Callable<Void>() {
             @Override
             public Void call() throws Exception {
@@ -150,7 +150,7 @@ public class NamesrvStartup {
                 return null;
             }
         }));
-
+        //启动服务器 以便监听Broker、消息生产者的网络请求
         controller.start();
 
         return controller;

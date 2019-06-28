@@ -26,7 +26,7 @@ import org.apache.rocketmq.store.config.StorePathConfigHelper;
 
 public class ConsumeQueue {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
-
+    //每一个标准的ConsumeQueue条目为20个字节【8字节(commitlog offset) + 4字节(size)+8字节(tag hashcode)】
     public static final int CQ_STORE_UNIT_SIZE = 20;
     private static final InternalLogger LOG_ERROR = InternalLoggerFactory.getLogger(LoggerName.STORE_ERROR_LOGGER_NAME);
 
@@ -151,6 +151,11 @@ public class ConsumeQueue {
         }
     }
 
+    /**
+     * 根据时间戳定位物理文件
+     * @param timestamp
+     * @return
+     */
     public long getOffsetInQueueByTime(final long timestamp) {
         MappedFile mappedFile = this.mappedFileQueue.getMappedFileByTime(timestamp);
         if (mappedFile != null) {
@@ -394,6 +399,7 @@ public class ConsumeQueue {
                         topic, queueId, request.getCommitLogOffset());
                 }
             }
+            //存储消息队列
             boolean result = this.putMessagePositionInfo(request.getCommitLogOffset(),
                 request.getMsgSize(), tagsCode, request.getConsumeQueueOffset());
             if (result) {
@@ -417,6 +423,7 @@ public class ConsumeQueue {
         this.defaultMessageStore.getRunningFlags().makeLogicsQueueError();
     }
 
+    //TODO 构建逻辑队列
     private boolean putMessagePositionInfo(final long offset, final int size, final long tagsCode,
         final long cqOffset) {
 
@@ -424,7 +431,10 @@ public class ConsumeQueue {
             log.warn("Maybe try to build consume queue repeatedly maxPhysicOffset={} phyOffset={}", maxPhysicOffset, offset);
             return true;
         }
-
+        //offset:需要重构consimeQueue的Message的CommitLog的物理位置
+        //size：Message的大小
+        //tagsCode：message的tagCode
+        //cqOffset:消息队列的逻辑偏移
         this.byteBufferIndex.flip();
         this.byteBufferIndex.limit(CQ_STORE_UNIT_SIZE);
         this.byteBufferIndex.putLong(offset);
@@ -432,10 +442,11 @@ public class ConsumeQueue {
         this.byteBufferIndex.putLong(tagsCode);
 
         final long expectLogicOffset = cqOffset * CQ_STORE_UNIT_SIZE;
-
+        //根据其我的绝对位置找到对应某个ConsumeQueue文件的MappedFile
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile(expectLogicOffset);
         if (mappedFile != null) {
-
+            //如果mappedFileQueue的MappedFile List被清除
+            //需要保证消息队列的逻辑位置和ConsumeQueue文件的起始文件和偏移保持一致，要补充空的逻辑消息
             if (mappedFile.isFirstCreateInQueue() && cqOffset != 0 && mappedFile.getWrotePosition() == 0) {
                 this.minLogicOffset = expectLogicOffset;
                 this.mappedFileQueue.setFlushedWhere(expectLogicOffset);
@@ -466,6 +477,7 @@ public class ConsumeQueue {
                 }
             }
             this.maxPhysicOffset = offset + size;
+            //将内容追加到内存映射文件中
             return mappedFile.appendMessage(this.byteBufferIndex.array());
         }
         return false;
@@ -485,6 +497,7 @@ public class ConsumeQueue {
 
     public SelectMappedBufferResult getIndexBuffer(final long startIndex) {
         int mappedFileSize = this.mappedFileSize;
+        //获取到物理偏移量
         long offset = startIndex * CQ_STORE_UNIT_SIZE;
         if (offset >= this.getMinLogicOffset()) {
             MappedFile mappedFile = this.mappedFileQueue.findMappedFileByOffset(offset);

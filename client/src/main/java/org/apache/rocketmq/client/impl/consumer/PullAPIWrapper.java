@@ -54,6 +54,10 @@ public class PullAPIWrapper {
     private final MQClientInstance mQClientFactory;
     private final String consumerGroup;
     private final boolean unitMode;
+    /**
+     * 消息队列 与 拉取Broker 的映射
+     * 当拉取消息时，会通过该映射获取拉取请求对应的Broker
+     */
     private ConcurrentMap<MessageQueue, AtomicLong/* brokerId */> pullFromWhichNodeTable =
         new ConcurrentHashMap<MessageQueue, AtomicLong>(32);
     private volatile boolean connectBrokerByUser = false;
@@ -67,6 +71,11 @@ public class PullAPIWrapper {
         this.unitMode = unitMode;
     }
 
+    /**
+    * 处理拉取结果
+    * 1. 更新消息队列拉取消息Broker编号的映射
+    * 2. 解析消息，并根据订阅信息消息tagCode匹配合适消息
+    */
     public PullResult processPullResult(final MessageQueue mq, final PullResult pullResult,
         final SubscriptionData subscriptionData) {
         PullResultExt pullResultExt = (PullResultExt) pullResult;
@@ -153,6 +162,9 @@ public class PullAPIWrapper {
         final CommunicationMode communicationMode,
         final PullCallback pullCallback
     ) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
+        // 获取Broker信息
+        //根据BrokerName,BrokerId从MQClientInstance中获取Broker地址
+        //在整个RocketMQ部署结构中，相同名称的Broker构成主从结构，其BrokerId会不一样，在每次拉取消息后，会给出一个建议，下次拉取是到主节点还是从节点拉取
         FindBrokerResult findBrokerResult =
             this.mQClientFactory.findBrokerAddressInSubscribe(mq.getBrokerName(),
                 this.recalculatePullFromWhichNode(mq), false);
@@ -191,6 +203,8 @@ public class PullAPIWrapper {
             requestHeader.setSubVersion(subVersion);
             requestHeader.setExpressionType(expressionType);
 
+            //消息过滤模式为类过滤，则需要根据主题名称、broker地址找到注册在Broker上的FilterServer地址，从FilterServer上拉取消息
+            //否则从Broker上拉取消息
             String brokerAddr = findBrokerResult.getBrokerAddr();
             if (PullSysFlag.hasClassFilterFlag(sysFlagInner)) {
                 brokerAddr = computPullFromWhichFilterServer(mq.getTopic(), brokerAddr);
@@ -208,7 +222,7 @@ public class PullAPIWrapper {
 
         throw new MQClientException("The broker[" + mq.getBrokerName() + "] not exist", null);
     }
-
+    //计算消息队列拉取消息对应的Broker编号
     public long recalculatePullFromWhichNode(final MessageQueue mq) {
         if (this.isConnectBrokerByUser()) {
             return this.defaultBrokerId;

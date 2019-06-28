@@ -124,6 +124,7 @@ public class BrokerOuterAPI {
         final boolean compressed) {
 
         final List<RegisterBrokerResult> registerBrokerResultList = Lists.newArrayList();
+        //获取NameServer列表
         List<String> nameServerAddressList = this.remotingClient.getNameServerAddressList();
         if (nameServerAddressList != null && nameServerAddressList.size() > 0) {
 
@@ -142,6 +143,7 @@ public class BrokerOuterAPI {
             final int bodyCrc32 = UtilAll.crc32(body);
             requestHeader.setBodyCrc32(bodyCrc32);
             final CountDownLatch countDownLatch = new CountDownLatch(nameServerAddressList.size());
+            //遍历NameServer列表 Broker消息服务器依次向NameServer发送心跳包
             for (final String namesrvAddr : nameServerAddressList) {
                 brokerOuterExecutor.execute(new Runnable() {
                     @Override
@@ -170,7 +172,7 @@ public class BrokerOuterAPI {
 
         return registerBrokerResultList;
     }
-
+    //向NameServer发送心跳包
     private RegisterBrokerResult registerBroker(
         final String namesrvAddr,
         final boolean oneway,

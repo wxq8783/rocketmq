@@ -54,6 +54,12 @@ public class IndexService {
             StorePathConfigHelper.getStorePathIndex(store.getMessageStoreConfig().getStorePathRootDir());
     }
 
+    /**
+     * 加载索引文件，如果上次异常退出 ，而且索引文件上次刷盘时间小于该索引文
+     * 件最大的消息时间戳该文件将立 即销毁 。
+     * @param lastExitOK
+     * @return
+     */
     public boolean load(final boolean lastExitOK) {
         File dir = new File(this.storePath);
         File[] files = dir.listFiles();
@@ -197,7 +203,7 @@ public class IndexService {
     private String buildKey(final String topic, final String key) {
         return topic + "#" + key;
     }
-
+    //创建索引index文件的消息
     public void buildIndex(DispatchRequest req) {
         IndexFile indexFile = retryGetAndCreateIndexFile();
         if (indexFile != null) {

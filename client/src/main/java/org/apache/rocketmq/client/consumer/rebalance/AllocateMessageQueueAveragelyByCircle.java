@@ -28,7 +28,7 @@ import org.apache.rocketmq.common.message.MessageQueue;
  */
 public class AllocateMessageQueueAveragelyByCircle implements AllocateMessageQueueStrategy {
     private final InternalLogger log = ClientLogger.getLog();
-
+    //环状分配消息队列。
     @Override
     public List<MessageQueue> allocate(String consumerGroup, String currentCID, List<MessageQueue> mqAll,
         List<String> cidAll) {

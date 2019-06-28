@@ -33,14 +33,14 @@ import org.apache.rocketmq.store.config.BrokerRole;
 
 /**
  * Create MappedFile in advance
+ * 创建MappedFile的线程类
  */
 public class AllocateMappedFileService extends ServiceThread {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private static int waitTimeOut = 1000 * 5;
-    private ConcurrentMap<String, AllocateRequest> requestTable =
-        new ConcurrentHashMap<String, AllocateRequest>();
-    private PriorityBlockingQueue<AllocateRequest> requestQueue =
-        new PriorityBlockingQueue<AllocateRequest>();
+    private ConcurrentMap<String, AllocateRequest> requestTable = new ConcurrentHashMap<String, AllocateRequest>();
+    //请求创建MappedFile的队列
+    private PriorityBlockingQueue<AllocateRequest> requestQueue = new PriorityBlockingQueue<AllocateRequest>();
     private volatile boolean hasException = false;
     private DefaultMessageStore messageStore;
 
@@ -48,6 +48,7 @@ public class AllocateMappedFileService extends ServiceThread {
         this.messageStore = messageStore;
     }
 
+    //通过该方法创建映射文件
     public MappedFile putRequestAndReturnMappedFile(String nextFilePath, String nextNextFilePath, int fileSize) {
         int canSubmitRequests = 2;
         if (this.messageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
@@ -143,6 +144,7 @@ public class AllocateMappedFileService extends ServiceThread {
     /**
      * Only interrupted by the external thread, will return false
      */
+    //开始创建commitLog
     private boolean mmapOperation() {
         boolean isSuccess = false;
         AllocateRequest req = null;
@@ -165,6 +167,7 @@ public class AllocateMappedFileService extends ServiceThread {
 
                 MappedFile mappedFile;
                 if (messageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
+                    //使用堆外内存池创建
                     try {
                         mappedFile = ServiceLoader.load(MappedFile.class).iterator().next();
                         mappedFile.init(req.getFilePath(), req.getFileSize(), messageStore.getTransientStorePool());
@@ -173,6 +176,7 @@ public class AllocateMappedFileService extends ServiceThread {
                         mappedFile = new MappedFile(req.getFilePath(), req.getFileSize(), messageStore.getTransientStorePool());
                     }
                 } else {
+                    //使用Mmap创建
                     mappedFile = new MappedFile(req.getFilePath(), req.getFileSize());
                 }
 
@@ -184,12 +188,10 @@ public class AllocateMappedFileService extends ServiceThread {
                 }
 
                 // pre write mappedFile
-                if (mappedFile.getFileSize() >= this.messageStore.getMessageStoreConfig()
-                    .getMapedFileSizeCommitLog()
-                    &&
-                    this.messageStore.getMessageStoreConfig().isWarmMapedFileEnable()) {
-                    mappedFile.warmMappedFile(this.messageStore.getMessageStoreConfig().getFlushDiskType(),
-                        this.messageStore.getMessageStoreConfig().getFlushLeastPagesWhenWarmMapedFile());
+                //创建好文件后，进行预热
+                if (mappedFile.getFileSize() >= this.messageStore.getMessageStoreConfig().getMapedFileSizeCommitLog()
+                    && this.messageStore.getMessageStoreConfig().isWarmMapedFileEnable()) {
+                    mappedFile.warmMappedFile(this.messageStore.getMessageStoreConfig().getFlushDiskType(), this.messageStore.getMessageStoreConfig().getFlushLeastPagesWhenWarmMapedFile());
                 }
 
                 req.setMappedFile(mappedFile);
@@ -217,10 +219,13 @@ public class AllocateMappedFileService extends ServiceThread {
         return true;
     }
 
+    /**
+     * 分配请求
+     */
     static class AllocateRequest implements Comparable<AllocateRequest> {
         // Full file path
-        private String filePath;
-        private int fileSize;
+        private String filePath; //文件路径
+        private int fileSize;//文件大小
         private CountDownLatch countDownLatch = new CountDownLatch(1);
         private volatile MappedFile mappedFile = null;
 

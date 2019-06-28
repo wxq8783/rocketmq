@@ -163,7 +163,7 @@ public class TopicConfigManager extends ConfigManager {
                     topicConfig = this.topicConfigTable.get(topic);
                     if (topicConfig != null)
                         return topicConfig;
-
+                    //创建topicConfig
                     TopicConfig defaultTopicConfig = this.topicConfigTable.get(defaultTopic);
                     if (defaultTopicConfig != null) {
                         if (defaultTopic.equals(MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC)) {
@@ -220,6 +220,7 @@ public class TopicConfigManager extends ConfigManager {
         }
 
         if (createNew) {
+            //向nameServer注册
             this.brokerController.registerBrokerAll(false, true,true);
         }
 

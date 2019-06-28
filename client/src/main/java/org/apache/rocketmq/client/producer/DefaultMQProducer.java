@@ -71,7 +71,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      * Producer group conceptually aggregates all producer instances of exactly same role, which is particularly
      * important when transactional messages are involved.
      * </p>
-     *
+     * 生产者所属组 消息服务器在回查事物状态时随机选择该组中任何一个生产者发起事物回查请求
      * For non-transactional messages, it does not matter as long as it's unique per process.
      * </p>
      *
@@ -86,6 +86,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     /**
      * Number of queues to create per default topic.
+     * 默认主题在每一个broker的队列数量
      */
     private volatile int defaultTopicQueueNums = 4;
 
@@ -96,13 +97,14 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     /**
      * Compress message body threshold, namely, message body larger than 4k will be compressed on default.
+     * 消息体查过4k则启用压缩
      */
     private int compressMsgBodyOverHowmuch = 1024 * 4;
 
     /**
      * Maximum number of retry to perform internally before claiming sending failure in synchronous mode.
      * </p>
-     *
+     * 同步方式发送消息重试次数 默认为2 总共执行3次
      * This may potentially cause message duplication which is up to application developers to resolve.
      */
     private int retryTimesWhenSendFailed = 2;
@@ -110,7 +112,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     /**
      * Maximum number of retry to perform internally before claiming sending failure in asynchronous mode.
      * </p>
-     *
+     * 异步方式发送消息重试次数 默认为2次
      * This may potentially cause message duplication which is up to application developers to resolve.
      */
     private int retryTimesWhenSendAsyncFailed = 2;
@@ -122,6 +124,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     /**
      * Maximum allowed message size in bytes.
+     * 允许发送的最大消息长度 默认4M
      */
     private int maxMessageSize = 1024 * 1024 * 4; // 4M
 

@@ -28,7 +28,7 @@ import org.apache.rocketmq.common.message.MessageQueue;
  */
 public class AllocateMessageQueueAveragely implements AllocateMessageQueueStrategy {
     private final InternalLogger log = ClientLogger.getLog();
-
+    //平均分配队列策略。
     @Override
     public List<MessageQueue> allocate(String consumerGroup, String currentCID, List<MessageQueue> mqAll,
         List<String> cidAll) {

@@ -57,11 +57,15 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
         Long.parseLong(System.getProperty("rocketmq.client.maxTimeConsumeContinuously", "60000"));
     private final DefaultMQPushConsumerImpl defaultMQPushConsumerImpl;
     private final DefaultMQPushConsumer defaultMQPushConsumer;
+    //顺序消费消费监听器
     private final MessageListenerOrderly messageListener;
+    //消息消费任务队列
     private final BlockingQueue<Runnable> consumeRequestQueue;
     private final ThreadPoolExecutor consumeExecutor;
     private final String consumerGroup;
+    //消息消费端消息消费队列锁容器  内部持有ConcurrentMap<MessageQueue, Object> mqLockTable = new ConcurrentHashMap<MessageQueue, Object>();
     private final MessageQueueLock messageQueueLock = new MessageQueueLock();
+    //调度任务线程池
     private final ScheduledExecutorService scheduledExecutorService;
     private volatile boolean stopped = false;
 
@@ -393,6 +397,9 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
         }
     }
 
+    /**
+     * 顺序消息的消费任务不会之间消费本次拉取的消息，而是在消息消费时从处理队列中拉取消息
+     */
     class ConsumeRequest implements Runnable {
         private final ProcessQueue processQueue;
         private final MessageQueue messageQueue;
@@ -416,11 +423,13 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
                 log.warn("run, the message queue not be able to consume, because it's dropped. {}", this.messageQueue);
                 return;
             }
-
+            //根据消息队列获取一个对象，然后消息消费时先申请独占objLock.顺序消息消费的并发度为一个消息队列
+            //也就是一个消息消费队列 同时只会被一个消费线程池中一个线程消费
             final Object objLock = messageQueueLock.fetchLockObject(this.messageQueue);
             synchronized (objLock) {
                 if (MessageModel.BROADCASTING.equals(ConsumeMessageOrderlyService.this.defaultMQPushConsumerImpl.messageModel())
                     || (this.processQueue.isLocked() && !this.processQueue.isLockExpired())) {
+                    //广播模式  或者 消费队列被锁定且未超时
                     final long beginTime = System.currentTimeMillis();
                     for (boolean continueConsume = true; continueConsume; ) {
                         if (this.processQueue.isDropped()) {
@@ -476,13 +485,14 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
                             ConsumeReturnType returnType = ConsumeReturnType.SUCCESS;
                             boolean hasException = false;
                             try {
+                                //申请消息消费锁
                                 this.processQueue.getLockConsume().lock();
                                 if (this.processQueue.isDropped()) {
                                     log.warn("consumeMessage, the message queue not be able to consume, because it's dropped. {}",
                                         this.messageQueue);
                                     break;
                                 }
-
+                                //执行业务方具体消息监听器执行真正的消息消费处理逻辑，并返回处理消息结果
                                 status = messageListener.consumeMessage(Collections.unmodifiableList(msgs), context);
                             } catch (Throwable e) {
                                 log.warn("consumeMessage exception: {} Group: {} Msgs: {} MQ: {}",

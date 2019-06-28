@@ -20,16 +20,17 @@ package org.apache.rocketmq.common.subscription;
 import org.apache.rocketmq.common.MixAll;
 
 public class SubscriptionGroupConfig {
-
+    //消费组
     private String groupName;
-
+    //是否可以消费
     private boolean consumeEnable = true;
+    //是否允许从最小队列偏移量开始消费
     private boolean consumeFromMinEnable = true;
-
+    //是否能以广播模式消费
     private boolean consumeBroadcastEnable = true;
-
+    //重试队列个数  每一个broker一个队列
     private int retryQueueNums = 1;
-
+    //消息最大重试次数 默认16次
     private int retryMaxTimes = 16;
 
     private long brokerId = MixAll.MASTER_ID;

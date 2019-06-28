@@ -30,6 +30,12 @@ public interface MQProducer extends MQAdmin {
 
     void shutdown();
 
+    /**
+     * 查找该主题下所有的消息队列
+     * @param topic
+     * @return
+     * @throws MQClientException
+     */
     List<MessageQueue> fetchPublishMessageQueues(final String topic) throws MQClientException;
 
     SendResult send(final Message msg) throws MQClientException, RemotingException, MQBrokerException,

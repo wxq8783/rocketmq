@@ -59,6 +59,7 @@ public class KVConfigManager {
     }
 
     public void putKVConfig(final String namespace, final String key, final String value) {
+        System.out.println("--------->namespace:"+namespace+" key:"+key+"   value:"+value);
         try {
             this.lock.writeLock().lockInterruptibly();
             try {

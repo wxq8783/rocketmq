@@ -38,6 +38,14 @@ import org.apache.rocketmq.remoting.exception.RemotingException;
 
 /**
  * Remote storage implementation
+ *
+ * 消息消费进度的读取，持久化与广播模式实现细节差不多，集群模式消息进度如果从内
+ * 存中读取消费进度，则从 RemoteBrokerOffsetStore 的 ConcurrentMap<MessageQueue, AtomicLong> offsetTable =new ConcurrentHashMap<Messag巳Qu巳ue, AtomicLong＞（）中根据消息消费队
+ * 列获取其消息消费进度；如果从磁盘读取，则发送网络请求，请求命令为 QUERY_
+ * CONSUMER OFFSET。 持久化消息进度，则请求命令为 UPDATE CONSUMER OFFSET,
+ * 更新 ConsumerOffsetManag町的 ConcurrentMap<String/* topic@group 町， ConcurrentMap<
+ * Integer／＊消息队列 ID灯， Long/＊消息消费进度＊／》 offsetTable, Broker 端默认 10s 持久化一次
+ * 消息进度，存储文件名：$ {RocketMQ_HOME}/store/config/consumerOffset.json。
  */
 public class RemoteBrokerOffsetStore implements OffsetStore {
     private final static InternalLogger log = ClientLogger.getLog();
@@ -58,6 +66,7 @@ public class RemoteBrokerOffsetStore implements OffsetStore {
     @Override
     public void updateOffset(MessageQueue mq, long offset, boolean increaseOnly) {
         if (mq != null) {
+            //通过MessageQueue获取本地的对应的消费进度
             AtomicLong offsetOld = this.offsetTable.get(mq);
             if (null == offsetOld) {
                 offsetOld = this.offsetTable.putIfAbsent(mq, new AtomicLong(offset));
@@ -124,6 +133,7 @@ public class RemoteBrokerOffsetStore implements OffsetStore {
                 if (offset != null) {
                     if (mqs.contains(mq)) {
                         try {
+                            // 将消费进度发送到broker
                             this.updateConsumeOffsetToBroker(mq, offset.get());
                             log.info("[persistAll] Group: {} ClientId: {} updateConsumeOffsetToBroker {} {}",
                                 this.groupName,

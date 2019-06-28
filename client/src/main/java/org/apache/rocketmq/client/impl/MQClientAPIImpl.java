@@ -297,6 +297,25 @@ public class MQClientAPIImpl {
         return sendMessage(addr, brokerName, msg, requestHeader, timeoutMillis, communicationMode, null, null, null, 0, context, producer);
     }
 
+    /**
+     * 消息发送 分为 同步 异步  oneWay
+     * @param addr
+     * @param brokerName
+     * @param msg
+     * @param requestHeader
+     * @param timeoutMillis
+     * @param communicationMode
+     * @param sendCallback
+     * @param topicPublishInfo
+     * @param instance
+     * @param retryTimesWhenSendFailed
+     * @param context
+     * @param producer
+     * @return
+     * @throws RemotingException
+     * @throws MQBrokerException
+     * @throws InterruptedException
+     */
     public SendResult sendMessage(
         final String addr,
         final String brokerName,
@@ -378,10 +397,14 @@ public class MQClientAPIImpl {
         this.remotingClient.invokeAsync(addr, request, timeoutMillis, new InvokeCallback() {
             @Override
             public void operationComplete(ResponseFuture responseFuture) {
+                //先从Server端返回的responseFuture变量中获取RemotingCommand的值
                 RemotingCommand response = responseFuture.getResponseCommand();
                 if (null == sendCallback && response != null) {
 
                     try {
+                        //Client端处理发送消息的Reponse返回（包括对消息返回体的头部进行解码，
+                        //取得“topic”、“BrokerName”、“QueueId”等值）
+                        //随后构建sendResult对象并设置Context上下文中
                         SendResult sendResult = MQClientAPIImpl.this.processSendResponse(brokerName, msg, response);
                         if (context != null && sendResult != null) {
                             context.setSendResult(sendResult);
@@ -632,7 +655,7 @@ public class MQClientAPIImpl {
         assert response != null;
         return this.processPullResponse(response);
     }
-
+    //根据响应结果解码成PullResultExt对象，此时只是从网络中读取消息列表到byte[] messageBinary属性
     private PullResult processPullResponse(
         final RemotingCommand response) throws MQBrokerException, RemotingCommandException {
         PullStatus pullStatus = PullStatus.NO_NEW_MSG;
@@ -965,8 +988,8 @@ public class MQClientAPIImpl {
         requestHeader.setOffset(msg.getCommitLogOffset());
         requestHeader.setDelayLevel(delayLevel);
         requestHeader.setOriginMsgId(msg.getMsgId());
-        requestHeader.setMaxReconsumeTimes(maxConsumeRetryTimes);
-
+        requestHeader.setMaxReconsumeTimes(maxConsumeRetryTimes);//最大重新消费次数
+        //调用同步请求到broker
         RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr),
             request, timeoutMillis);
         assert response != null;
@@ -977,7 +1000,7 @@ public class MQClientAPIImpl {
             default:
                 break;
         }
-
+        //不成功  抛异常
         throw new MQBrokerException(response.getCode(), response.getRemark());
     }
 
@@ -1214,17 +1237,21 @@ public class MQClientAPIImpl {
 
         return getTopicRouteInfoFromNameServer(topic, timeoutMillis, true);
     }
-
+    /**
+     * 本地缓存中不存在时从远端的NameServer注册中心中拉取Topic路由信息
+     */
     public TopicRouteData getTopicRouteInfoFromNameServer(final String topic, final long timeoutMillis,
         boolean allowTopicNotExist) throws MQClientException, InterruptedException, RemotingTimeoutException, RemotingSendRequestException, RemotingConnectException {
         GetRouteInfoRequestHeader requestHeader = new GetRouteInfoRequestHeader();
         requestHeader.setTopic(topic);
-
+        //设置请求头中的Topic参数后，发送获取Topic路由信息的request请求给NameServer
         RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_ROUTEINTO_BY_TOPIC, requestHeader);
 
+        //这里由于是同步方式发送，所以直接return response的响应
         RemotingCommand response = this.remotingClient.invokeSync(null, request, timeoutMillis);
         assert response != null;
         switch (response.getCode()) {
+            //如果NameServer中不存在待发送消息的Topic
             case ResponseCode.TOPIC_NOT_EXIST: {
                 if (allowTopicNotExist && !topic.equals(MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC)) {
                     log.warn("get Topic [{}] RouteInfoFromNameServer is not exist value", topic);
@@ -1232,6 +1259,7 @@ public class MQClientAPIImpl {
 
                 break;
             }
+            //如果获取Topic存在，则成功返回，利用TopicRouteData进行解码，且直接返回TopicRouteData
             case ResponseCode.SUCCESS: {
                 byte[] body = response.getBody();
                 if (body != null) {

@@ -238,10 +238,6 @@ public class BrokerController {
                 this.messageStore =
                     new DefaultMessageStore(this.messageStoreConfig, this.brokerStatsManager, this.messageArrivingListener,
                         this.brokerConfig);
-                if (messageStoreConfig.isEnableDLegerCommitLog()) {
-                    DLedgerRoleChangeHandler roleChangeHandler = new DLedgerRoleChangeHandler(this, (DefaultMessageStore) messageStore);
-                    ((DLedgerCommitLog)((DefaultMessageStore) messageStore).getCommitLog()).getdLedgerServer().getdLedgerLeaderElector().addRoleChangeHandler(roleChangeHandler);
-                }
                 this.brokerStats = new BrokerStats((DefaultMessageStore) this.messageStore);
                 //load plugin
                 MessageStorePluginContext context = new MessageStorePluginContext(messageStoreConfig, brokerStatsManager, messageArrivingListener, brokerConfig);
@@ -252,7 +248,7 @@ public class BrokerController {
                 log.error("Failed to initialize", e);
             }
         }
-
+        //加载commitLog。。。等文件到mappedFiles
         result = result && this.messageStore.load();
 
         if (result) {
@@ -331,6 +327,7 @@ public class BrokerController {
                 }
             }, initialDelay, period, TimeUnit.MILLISECONDS);
 
+            //定时器  每隔5s把offset持久到磁盘
             this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
                 @Override
                 public void run() {
@@ -404,26 +401,37 @@ public class BrokerController {
                 }, 1000 * 10, 1000 * 60 * 2, TimeUnit.MILLISECONDS);
             }
 
-            if (!messageStoreConfig.isEnableDLegerCommitLog()) {
-                if (BrokerRole.SLAVE == this.messageStoreConfig.getBrokerRole()) {
-                    if (this.messageStoreConfig.getHaMasterAddress() != null && this.messageStoreConfig.getHaMasterAddress().length() >= 6) {
-                        this.messageStore.updateHaMasterAddress(this.messageStoreConfig.getHaMasterAddress());
-                        this.updateMasterHAServerAddrPeriodically = false;
-                    } else {
-                        this.updateMasterHAServerAddrPeriodically = true;
-                    }
+            if (BrokerRole.SLAVE == this.messageStoreConfig.getBrokerRole()) {
+                if (this.messageStoreConfig.getHaMasterAddress() != null && this.messageStoreConfig.getHaMasterAddress().length() >= 6) {
+                    this.messageStore.updateHaMasterAddress(this.messageStoreConfig.getHaMasterAddress());
+                    this.updateMasterHAServerAddrPeriodically = false;
                 } else {
-                    this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
-                        @Override
-                        public void run() {
-                            try {
-                                BrokerController.this.printMasterAndSlaveDiff();
-                            } catch (Throwable e) {
-                                log.error("schedule printMasterAndSlaveDiff error.", e);
-                            }
-                        }
-                    }, 1000 * 10, 1000 * 60, TimeUnit.MILLISECONDS);
+                    this.updateMasterHAServerAddrPeriodically = true;
                 }
+
+                this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        try {
+                            BrokerController.this.slaveSynchronize.syncAll();
+                        } catch (Throwable e) {
+                            log.error("ScheduledTask syncAll slave exception", e);
+                        }
+                    }
+                }, 1000 * 10, 1000 * 60, TimeUnit.MILLISECONDS);
+            } else {
+                this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        try {
+                            BrokerController.this.printMasterAndSlaveDiff();
+                        } catch (Throwable e) {
+                            log.error("schedule printMasterAndSlaveDiff error.", e);
+                        }
+                    }
+                }, 1000 * 10, 1000 * 60, TimeUnit.MILLISECONDS);
             }
 
             if (TlsSystemConfig.tlsMode != TlsMode.DISABLED) {
@@ -467,8 +475,6 @@ public class BrokerController {
                 }
             }
             initialTransaction();
-            initialAcl();
-            initialRpcHooks();
         }
         return result;
     }
@@ -852,15 +858,8 @@ public class BrokerController {
             this.filterServerManager.start();
         }
 
-        if (!messageStoreConfig.isEnableDLegerCommitLog()) {
-            startProcessorByHa(messageStoreConfig.getBrokerRole());
-            handleSlaveSynchronize(messageStoreConfig.getBrokerRole());
-        }
-
-
-
         this.registerBrokerAll(true, false, true);
-
+        //定时器 每个30秒向NameServer发送心跳包
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -881,7 +880,12 @@ public class BrokerController {
             this.brokerFastFailure.start();
         }
 
-
+        if (BrokerRole.SLAVE != messageStoreConfig.getBrokerRole()) {
+            if (this.transactionalMessageCheckService != null) {
+                log.info("Start transaction service!");
+                this.transactionalMessageCheckService.start();
+            }
+        }
     }
 
     public synchronized void registerIncrementBrokerData(TopicConfig topicConfig, DataVersion dataVersion) {
@@ -1034,7 +1038,6 @@ public class BrokerController {
 
     public void registerServerRPCHook(RPCHook rpcHook) {
         getRemotingServer().registerRPCHook(rpcHook);
-        this.fastRemotingServer.registerRPCHook(rpcHook);
     }
 
     public RemotingServer getRemotingServer() {

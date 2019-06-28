@@ -27,7 +27,7 @@ import org.apache.rocketmq.common.message.MessageQueue;
  */
 public class AllocateMessageQueueByMachineRoom implements AllocateMessageQueueStrategy {
     private Set<String> consumeridcs;
-
+    //平均分配可消费的 Broker 对应的消息队列。
     @Override
     public List<MessageQueue> allocate(String consumerGroup, String currentCID, List<MessageQueue> mqAll,
         List<String> cidAll) {

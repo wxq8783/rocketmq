@@ -49,6 +49,7 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
         this.brokerController = brokerController;
     }
 
+    //endTransaction
     @Override
     public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request) throws
         RemotingCommandException {
@@ -125,15 +126,23 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
         if (MessageSysFlag.TRANSACTION_COMMIT_TYPE == requestHeader.getCommitOrRollback()) {
             result = this.brokerController.getTransactionalMessageService().commitMessage(requestHeader);
             if (result.getResponseCode() == ResponseCode.SUCCESS) {
+                //检查合法性:1、half消息的PGROUP、queueOffset、commitLogOffset和请求头的相应值应相同
                 RemotingCommand res = checkPrepareMessage(result.getPrepareMessage(), requestHeader);
                 if (res.getCode() == ResponseCode.SUCCESS) {
+                    //还原half message真实的topic、queue
                     MessageExtBrokerInner msgInner = endMessageTransaction(result.getPrepareMessage());
+                    //sysFlag设置为TRANSACTION_COMMIT_TYPE
                     msgInner.setSysFlag(MessageSysFlag.resetTransactionValue(msgInner.getSysFlag(), requestHeader.getCommitOrRollback()));
                     msgInner.setQueueOffset(requestHeader.getTranStateTableOffset());
                     msgInner.setPreparedTransactionOffset(requestHeader.getCommitLogOffset());
                     msgInner.setStoreTimestamp(result.getPrepareMessage().getStoreTimestamp());
+                    //将还原后的消息重新落盘 随后就会调用CommitLogDispatcherBuildConsumeQueue.dispatch更新原始topic的ConsumerQueue
+                    //该消息对消费者可见
                     RemotingCommand sendResult = sendFinalMessage(msgInner);
                     if (sendResult.getCode() == ResponseCode.SUCCESS) {
+                        //删除half消息(并发从磁盘真正删除)
+                        //具体逻辑是构建一个消息 放入RMQ_SYS_TRANS_OP_HALF_TOPIC队列，queueId为对应half消息QueueId
+                        //消息内容为对应的half消息的queueOffset，并将TAGS属性设置为“d”
                         this.brokerController.getTransactionalMessageService().deletePrepareMessage(result.getPrepareMessage());
                     }
                     return sendResult;
