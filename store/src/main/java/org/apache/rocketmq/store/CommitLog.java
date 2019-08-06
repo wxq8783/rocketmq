@@ -1278,7 +1278,7 @@ public class CommitLog {
 
             this.resetByteBuffer(hostHolder, 8);
             //broker的存储地址和消息的物理绝对位置生成唯一的messageId  16字节 4字节IP+4字节端口号+8字节消息偏移量
-            //通过 Uti1All.string2bytes 方法将msgld字符串还原成16个字节的字节数组，从而根据提取消息偏移量，可以快速通过msgld找到消息内容 。
+            //通过 Uti1All.string2bytes 方法将msgld字符串还原成16个字节的字节数组，从而根据提取消息偏移量，可以快速通过msgld找到消息内容。
             String msgId = MessageDecoder.createMessageId(this.msgIdMemory, msgInner.getStoreHostBytes(hostHolder), wroteOffset);
 
             // Record ConsumeQueue information

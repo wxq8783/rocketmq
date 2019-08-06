@@ -90,7 +90,12 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
         }
         return false;
     }
-
+    /**
+     * 在此把该消息存储在 commitlog 文件， 新的消息设置最新的物理偏移量 。
+     * 主要是因为下文的发送事务消息是异步处理的,无法立刻知道其处理结果，为了避免简化 prepare 消息队列和处理队列的消息消费进度
+     * 处理 ， 先存储 ， 然后消费进度向前推动，重复发送的消息在事务回查之前会判断是否处理过 。
+     * 另外一个目的就是需要修改消息的检查次数， RocketMQ 的存储设计采用顺序写，去修改已存储的消息，其性能无法高性能 。
+     */
     private boolean putBackHalfMsgQueue(MessageExt msgExt, long offset) {
         PutMessageResult putMessageResult = putBackToHalfQueueReturnResult(msgExt);
         if (putMessageResult != null
@@ -118,11 +123,10 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
     }
     //TODO  事物消息的 回查 操作
     @Override
-    public void check(long transactionTimeout, int transactionCheckMax,
-        AbstractTransactionalMessageCheckListener listener) {
+    public void check(long transactionTimeout, int transactionCheckMax, AbstractTransactionalMessageCheckListener listener) {
         try {
             String topic = MixAll.RMQ_SYS_TRANS_HALF_TOPIC;
-            //获取RMQ_SYS_TRANS_HALF_TOPIC的所有messageQueue（一个MessageQueue对应一个ConsumeQueue）
+            //获取RMQ_SYS_TRANS_HALF_TOPIC的所有messageQueue(一个MessageQueue对应一个ConsumeQueue)
             Set<MessageQueue> msgQueues = transactionalMessageBridge.fetchMessageQueues(topic);
             if (msgQueues == null || msgQueues.size() == 0) {
                 log.warn("The queue of topic is empty :" + topic);
@@ -134,7 +138,7 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
             for (MessageQueue messageQueue : msgQueues) {
                 long startTime = System.currentTimeMillis();
                 //根据HALF_TOPIC的messageQueue，获取OP_HALF_TOPIC对应的MessageQueue。根据QueueId对应
-                //实际上HALF_TOPIC和OP_HALF_TOPIC个有一个MessageQueue
+                //实际上HALF_TOPIC和OP_HALF_TOPIC各有一个MessageQueue
                 MessageQueue opQueue = getOpQueue(messageQueue);
                 //获取两个messageQueue的当前消费进度(逻辑offset)
                 long halfOffset = transactionalMessageBridge.fetchConsumeOffset(messageQueue);
@@ -159,9 +163,9 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
                     continue;
                 }
                 // single thread
-                int getMessageNullCount = 1;
-                long newOffset = halfOffset;
-                long i = halfOffset;
+                int getMessageNullCount = 1;//获取空消息的次数
+                long newOffset = halfOffset;//当前处理RMQ_SYS_TRANS_HALF_TOPIC#queueId的最新进度
+                long i = halfOffset;//当前处理消息的队列偏移量 主题依然为 RMQ_SYS_TRANS_HALF_TOPIC
                 while (true) {
                     //对于RMQ_SYS_TRANS_HALF_TOPIC的每一个MessageQueue，执行检查逻辑的时间 不能超过6s
                     if (System.currentTimeMillis() - startTime > MAX_PROCESS_TIME_LIMIT) {
@@ -173,7 +177,7 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
                         log.info("Half offset {} has been committed/rolled back", i);
                         removeMap.remove(i);
                     } else {
-                        //获取放弃MessageQueue当前的offset对应的half消息
+                        //获取待处理的MessageQueue当前的offset对应的half消息
                         GetResult getResult = getHalfMsg(messageQueue, i);
                         MessageExt msgExt = getResult.getMsg();
                         if (msgExt == null) {
@@ -181,18 +185,18 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
                                 break;
                             }
                             if (getResult.getPullResult().getPullStatus() == PullStatus.NO_NEW_MSG) {
-                                log.debug("No new msg, the miss offset={} in={}, continue check={}, pull result={}", i,
-                                    messageQueue, getMessageNullCount, getResult.getPullResult());
+                                log.debug("No new msg, the miss offset={} in={}, continue check={}, pull result={}", i, messageQueue, getMessageNullCount, getResult.getPullResult());
                                 break;
                             } else {
-                                log.info("Illegal offset, the miss offset={} in={}, continue check={}, pull result={}",
-                                    i, messageQueue, getMessageNullCount, getResult.getPullResult());
+                                log.info("Illegal offset, the miss offset={} in={}, continue check={}, pull result={}", i, messageQueue, getMessageNullCount, getResult.getPullResult());
                                 i = getResult.getPullResult().getNextBeginOffset();
                                 newOffset = i;
                                 continue;
                             }
                         }
-
+                        //判断该消息是否需要 discard （吞没、丢弃、不处理）或 skip （跳过）
+                        //如果该消息回查的次数超过允许的最大回查次数，则该消息将被丢弃，即事务消息提交失败，
+                        // 具体实现方式为每回查一次，在消息属性TRANSACTION_CHECK_TIMES 中增 l ， 默认最大回查次数为 5 次
                         if (needDiscard(msgExt, transactionCheckMax) || needSkip(msgExt)) {
                             listener.resolveDiscardMsg(msgExt);
                             newOffset = i + 1;
@@ -205,7 +209,10 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
                             break;
                         }
 
-                        long valueOfCurrentMinusBorn = System.currentTimeMillis() - msgExt.getBornTimestamp();
+                        long valueOfCurrentMinusBorn = System.currentTimeMillis() - msgExt.getBornTimestamp();//消息已存储的时间，为系统 当前时－间减去消息存储的时间戳
+                        //立即检测事务消息的时间
+                        // 主要作用：应用程序在发送事务消息后，事务不会马上提交，该时间就是假设事务消息发送成功后，应用程序 事务提交的时间 ，
+                        // 在这段时间内， RocketMQ 任务事务未提交，故不应该在这个时间段向应用程序发送回查请求
                         long checkImmunityTime = transactionTimeout;
                         String checkImmunityTimeStr = msgExt.getUserProperty(MessageConst.PROPERTY_CHECK_IMMUNITY_TIME_IN_SECONDS);
                         //生产者对特点消息设置了首次免疫回查时间

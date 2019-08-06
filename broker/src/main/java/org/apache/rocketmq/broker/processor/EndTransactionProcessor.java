@@ -49,13 +49,18 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
         this.brokerController = brokerController;
     }
 
+    /**
+     * 事物结束处理
+     * @param ctx
+     * @param request
+     * @return
+     * @throws RemotingCommandException
+     */
     //endTransaction
     @Override
-    public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request) throws
-        RemotingCommandException {
+    public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
-        final EndTransactionRequestHeader requestHeader =
-            (EndTransactionRequestHeader)request.decodeCommandCustomHeader(EndTransactionRequestHeader.class);
+        final EndTransactionRequestHeader requestHeader = (EndTransactionRequestHeader)request.decodeCommandCustomHeader(EndTransactionRequestHeader.class);
         LOGGER.info("Transaction request:{}", requestHeader);
         if (BrokerRole.SLAVE == brokerController.getMessageStoreConfig().getBrokerRole()) {
             response.setCode(ResponseCode.SLAVE_NOT_AVAILABLE);
@@ -124,6 +129,7 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
         }
         OperationResult result = new OperationResult();
         if (MessageSysFlag.TRANSACTION_COMMIT_TYPE == requestHeader.getCommitOrRollback()) {
+            //获取消息的物理偏移量
             result = this.brokerController.getTransactionalMessageService().commitMessage(requestHeader);
             if (result.getResponseCode() == ResponseCode.SUCCESS) {
                 //检查合法性:1、half消息的PGROUP、queueOffset、commitLogOffset和请求头的相应值应相同
@@ -140,7 +146,7 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
                     //该消息对消费者可见
                     RemotingCommand sendResult = sendFinalMessage(msgInner);
                     if (sendResult.getCode() == ResponseCode.SUCCESS) {
-                        //删除half消息(并发从磁盘真正删除)
+                        //删除half消息(并不是从磁盘真正删除)
                         //具体逻辑是构建一个消息 放入RMQ_SYS_TRANS_OP_HALF_TOPIC队列，queueId为对应half消息QueueId
                         //消息内容为对应的half消息的queueOffset，并将TAGS属性设置为“d”
                         this.brokerController.getTransactionalMessageService().deletePrepareMessage(result.getPrepareMessage());

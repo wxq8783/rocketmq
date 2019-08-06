@@ -104,6 +104,7 @@ public class ClientRemotingProcessor implements NettyRequestProcessor {
             }
             final String group = messageExt.getProperty(MessageConst.PROPERTY_PRODUCER_GROUP);
             if (group != null) {
+                //然后根据消息的生产者组，从中随机选择一个消息发送者
                 MQProducerInner producer = this.mqClientFactory.selectProducer(group);
                 if (producer != null) {
                     final String addr = RemotingHelper.parseChannelRemoteAddr(ctx.channel());

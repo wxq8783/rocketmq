@@ -53,6 +53,7 @@ public abstract class AbstractTransactionalMessageCheckListener {
     }
     //TODO 发起回查
     public void sendCheckMessage(MessageExt msgExt) throws Exception {
+        //首先构建事务状态回查请求消息
         CheckTransactionStateRequestHeader checkTransactionStateRequestHeader = new CheckTransactionStateRequestHeader();
         checkTransactionStateRequestHeader.setCommitLogOffset(msgExt.getCommitLogOffset());
         checkTransactionStateRequestHeader.setOffsetMsgId(msgExt.getMsgId());
@@ -63,6 +64,7 @@ public abstract class AbstractTransactionalMessageCheckListener {
         msgExt.setQueueId(Integer.parseInt(msgExt.getUserProperty(MessageConst.PROPERTY_REAL_QUEUE_ID)));
         msgExt.setStoreSize(0);
         String groupId = msgExt.getProperty(MessageConst.PROPERTY_PRODUCER_GROUP);
+        //然后根据消息的生产者组，从中随机选择一个消息发送者
         Channel channel = brokerController.getProducerManager().getAvaliableChannel(groupId);
         if (channel != null) {
             brokerController.getBroker2Client().checkProducerTransactionState(groupId, channel, checkTransactionStateRequestHeader, msgExt);

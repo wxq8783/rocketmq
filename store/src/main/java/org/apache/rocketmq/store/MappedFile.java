@@ -61,7 +61,8 @@ public class MappedFile extends ReferenceResource {
     protected FileChannel fileChannel;
     /**
      * Message will put to here first, and then reput to FileChannel if writeBuffer is not null.
-     * 堆内存ByteBuffer  如果不为空，数据首先将存储在该Buffer中，然后提交到MappedFile对应的内存映射文件Buffer。transientStorePoolEnable为true时不为空
+     * 堆内存ByteBuffer  如果不为空，数据首先将存储在该Buffer中，然后提交到MappedFile对应的内存映射文件Buffer。
+     * 如果开启了transientStorePoolEnable,则使用ByteBuffer.allocateDirect(fileSize),创建(java.nio的内存映射机制)。 如果未开启，则为空。
      */
     protected ByteBuffer writeBuffer = null;
     //堆内存池  transientStorePoolEnable=true时启用
@@ -72,7 +73,7 @@ public class MappedFile extends ReferenceResource {
     private long fileFromOffset;
     //物理文件
     private File file;
-    //物理文件对应的内存映射Buffer
+    //物理文件对应的内存映射Buffer   使用FileChannel#map方法创建，即真正意义上的PageCache。
     private MappedByteBuffer mappedByteBuffer;
     //文件最后一次内容写入时间
     private volatile long storeTimestamp = 0;
@@ -227,6 +228,12 @@ public class MappedFile extends ReferenceResource {
         return appendMessagesInner(messageExtBatch, cb);
     }
 
+    /**
+     * 写消息
+     * @param messageExt
+     * @param cb
+     * @return
+     */
     public AppendMessageResult appendMessagesInner(final MessageExt messageExt, final AppendMessageCallback cb) {
         assert messageExt != null;
         assert cb != null;
@@ -234,7 +241,7 @@ public class MappedFile extends ReferenceResource {
         int currentPos = this.wrotePosition.get();
 
         if (currentPos < this.fileSize) {
-            //这个Buffer和同步/异步刷盘相关(异步刷盘还有两种模式可供选择)
+            //这个Buffer和同步/异步刷盘相关(异步刷盘还有两种模式可供选择)  writerBuffer不为空，说明开启了transientStorePoolEnable机制，则消息首先写入writerBuffer中，如果其为空，则写入mappedByteBuffer中。
             //通过slice()创建一个与MappedFile的共享内存区  并设置position为当前指针
             ByteBuffer byteBuffer = writeBuffer != null ? writeBuffer.slice() : this.mappedByteBuffer.slice();
             byteBuffer.position(currentPos);
@@ -473,7 +480,8 @@ public class MappedFile extends ReferenceResource {
     }
 
     /**
-     * 查找pos到当前最大可读之间的数据
+     * 消息拉取  查找pos到当前最大可读之间的数据
+     * 消息读取时，是从mappedByteBuffer中读(pageCache)
      * @param pos
      * @return
      */

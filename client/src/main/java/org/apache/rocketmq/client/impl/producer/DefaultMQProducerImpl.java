@@ -1223,7 +1223,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
         SendResult sendResult = null;
         MessageAccessor.putProperty(msg, MessageConst.PROPERTY_TRANSACTION_PREPARED, "true");
-        //设置PGROUP属性值为生产者组的ID(对于回查逻辑非常重要)
+        //设置PGROUP属性值为生产者组的ID(对于回查逻辑非常重要)   在查询事物消息本地事物状态时，从该生产者组中随机选择一个消息生产者即可
         //1、broker向生产者端发送回查请求是，通过PGROUP属性来寻找channel
         //2、生产者端通过PGROUP属性值从producerTable中找生产者实例，用来执行本地事物状态逻辑
         MessageAccessor.putProperty(msg, MessageConst.PROPERTY_PRODUCER_GROUP, this.defaultMQProducer.getProducerGroup());
